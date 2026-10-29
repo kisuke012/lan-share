@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LAN Share</title>
+<style>
+  /* System fonts on purpose: a LAN has no internet, so web fonts would fail to load. */
+  :root{
+    --bg:#e9efed; --panel:#ffffff; --ink:#15201e; --muted:#5b6b67;
+    --line:#c9d6d2; --accent:#0e7c6b; --accent-ink:#ffffff; --danger:#b3261e;
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  body{margin:0;background:var(--bg);color:var(--ink);line-height:1.5}
+  main{max-width:720px;margin:0 auto;padding:28px 18px 60px}
+  h1{font-size:1.6rem;margin:0 0 4px;letter-spacing:-.01em}
+  h2{font-size:1.1rem;margin:26px 0 10px}
+  .sub{color:var(--muted);margin:0 0 22px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:14px}
+  .panel p{margin:0 0 12px;color:var(--muted)}
+  button,input[type=text]{font:inherit;border-radius:8px;border:1px solid var(--line);padding:9px 14px;
+                          background:var(--panel);color:var(--ink)}
+  button{cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  button:focus-visible,input:focus-visible,.drop:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+  .row{display:flex;gap:10px;flex-wrap:wrap}
+  #joinCode{text-transform:uppercase;letter-spacing:.2em;width:9em;font-weight:600}
+  .code{font-size:2.4rem;font-weight:700;letter-spacing:.25em;margin:2px 0 8px}
+  .link{word-break:break-all;color:var(--muted);font-size:.92rem}
+  .drop{display:block;text-align:center;padding:42px 18px;border:2px dashed var(--accent);border-radius:14px;
+        background:var(--panel);cursor:pointer;transition:background .15s}
+  .drop.over{background:#d6efe9}
+  .drop strong{display:block;font-size:1.25rem;margin-bottom:4px}
+  .drop small{color:var(--muted)}
+  .drop input{display:none}
+  .bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:14px;display:none}
+  .bar i{display:block;height:100%;width:0;background:var(--accent)}
+  .msg{min-height:1.4em;margin:10px 0 0;font-size:.95rem}
+  .msg.err{color:var(--danger)}
+  ul{list-style:none;margin:0;padding:0;background:var(--panel);border:1px solid var(--line);border-radius:12px}
+  li{display:flex;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line)}
+  li:last-child{border-bottom:0}
+  .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .meta{color:var(--muted);font-size:.85rem}
+  a.dl{background:var(--accent);color:var(--accent-ink);text-decoration:none;border-radius:8px;padding:7px 14px}
+  .danger{color:var(--danger)}
+  .empty{padding:26px 14px;text-align:center;color:var(--muted)}
+  .note{color:var(--muted);font-size:.9rem;margin-top:22px}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+  <h1>LAN Share</h1>
+  <p class="sub">Send files between devices. Everything is deleted when the session ends.</p>
+
+  <!-- Screen 1: start or join -->
+  <section id="landing">
+    <div class="panel">
+      <p>Start a private session on this device, then open it on your other device.</p>
+      <button class="primary" id="start">Start a session</button>
+    </div>
+    <div class="panel">
+      <p>Already have a code? Enter it to join that session.</p>
+      <form class="row" id="joinForm">
+        <input type="text" id="joinCode" maxlength="6" placeholder="ABC234" autocomplete="off" aria-label="Session code">
+        <button type="submit">Join session</button>
+      </form>
+    </div>
+    <p class="msg" id="landMsg" role="status"></p>
+  </section>
+
+  <!-- Screen 2: inside a session -->
+  <section id="session" hidden>
+    <div class="panel">
+      <p>Session code. Enter it on your other device, or open the link below.</p>
+      <div class="code" id="code"></div>
+      <div class="link" id="link"></div>
+      <div class="row" style="margin-top:12px">
+        <button id="copy">Copy link</button>
+        <button class="danger" id="end">End session and delete everything</button>
+      </div>
+    </div>
+
+    <label class="drop" id="drop" tabindex="0">
+      <strong>Drop files here, or tap to choose</strong>
+      <small>Up to 100 MB per session. Only people with the code can see them.</small>
+      <input type="file" id="picker" multiple>
+    </label>
+    <div class="bar" id="bar"><i id="fill"></i></div>
+    <p class="msg" id="msg" role="status"></p>
+
+    <h2>Files in this session</h2>
+    <ul id="list"></ul>
+    <p class="note">The session is deleted automatically after 10 minutes with no open page, or after 2 hours.</p>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const CODE_RE = /^[A-HJ-NP-Z2-9]{6}$/;
+let code = null, timer = null, base = location.origin;
+
+const say = (id, t, err=false) => { $(id).textContent = t; $(id).className = "msg" + (err ? " err" : ""); };
+const api = p => "/api/" + code + p;
+
+function fmtSize(b){
+  const u = ["B","KB","MB","GB"]; let i = 0;
+  while (b >= 1024 && i < u.length-1){ b /= 1024; i++; }
+  return (i ? b.toFixed(1) : b) + " " + u[i];
+}
+
+// "localhost" links are useless on another device, so ask the server for the LAN address.
+fetch("/api/info").then(r => r.json()).then(d => {
+  if (["localhost","127.0.0.1"].includes(location.hostname)) base = d.url;
+});
+
+function enter(c){
+  code = c; history.replaceState(null, "", "#" + c);
+  $("landing").hidden = true; $("session").hidden = false;
+  $("code").textContent = c; $("link").textContent = base + "/#" + c;
+  say("msg", ""); load(); timer = setInterval(load, 4000);   // open page = session stays alive
+}
+
+function leave(text){
+  clearInterval(timer); code = null;
+  history.replaceState(null, "", location.pathname);
+  $("session").hidden = true; $("landing").hidden = false; say("landMsg", text);
+}
+
+async function start(){
+  const r = await fetch("/api/room", {method:"POST"});
+  const d = await r.json();
+  r.ok ? enter(d.code) : say("landMsg", d.error, true);
+}
+
+async function join(c){
+  c = c.trim().toUpperCase();
+  if (!CODE_RE.test(c)) return say("landMsg", "Codes have 6 letters and numbers, like ABC234.", true);
+  const r = await fetch("/api/" + c + "/files");
+  r.ok ? enter(c) : say("landMsg", "No active session with that code. Check it, or start a new session.", true);
+}
+
+// Rows are built with textContent, never innerHTML, so a file named <script> cannot run code.
+function render(files){
+  const ul = $("list"); ul.replaceChildren();
+  if (!files.length){
+    const li = document.createElement("li"); li.className = "empty";
+    li.textContent = "No files yet. Drop one above to share it."; ul.append(li); return;
+  }
+  for (const f of files){
+    const li = document.createElement("li");
+    const name = document.createElement("span"); name.className = "name"; name.textContent = f.name;
+    const meta = document.createElement("span"); meta.className = "meta"; meta.textContent = fmtSize(f.size);
+    const dl = document.createElement("a"); dl.className = "dl"; dl.textContent = "Download";
+    dl.href = api("/files/" + encodeURIComponent(f.name));
+    const del = document.createElement("button"); del.className = "danger"; del.textContent = "Delete";
+    del.onclick = async () => {
+      if (!confirm("Delete " + f.name + "?")) return;
+      const r = await fetch(api("/files/" + encodeURIComponent(f.name)), {method:"DELETE"});
+      say("msg", r.ok ? "Deleted " + f.name : "Could not delete " + f.name, !r.ok); load();
+    };
+    li.append(name, meta, dl, del); ul.append(li);
+  }
+}
+
+async function load(){
+  if (!code) return;
+  try {
+    const r = await fetch(api("/files"));
+    if (r.status === 404) return leave("That session has ended and all its files were deleted.");
+    render(await r.json());
+  } catch { say("msg", "Lost connection to the host computer. Check that both devices are on the same network.", true); }
+}
+
+function upload(fileList){
+  if (!fileList.length) return;
+  const fd = new FormData();
+  for (const f of fileList) fd.append("files", f);
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", api("/upload"));
+  $("bar").style.display = "block";
+  xhr.upload.onprogress = e => { if (e.lengthComputable) $("fill").style.width = (e.loaded/e.total*100) + "%"; };
+  xhr.onload = () => {
+    $("bar").style.display = "none"; $("fill").style.width = "0";
+    if (xhr.status === 200) say("msg", "Uploaded " + JSON.parse(xhr.responseText).saved.length + " file(s).");
+    else if (xhr.status === 404) return leave("That session has ended and all its files were deleted.");
+    else say("msg", xhr.status === 413 ? "Not enough space left in this session (100 MB total)." : "Upload failed (error " + xhr.status + ").", true);
+    load();
+  };
+  xhr.onerror = () => { $("bar").style.display = "none"; say("msg", "Upload failed. Check your network connection.", true); };
+  say("msg", "Uploading…"); xhr.send(fd);
+}
+
+$("start").onclick = start;
+$("joinForm").onsubmit = e => { e.preventDefault(); join($("joinCode").value); };
+$("end").onclick = async () => {
+  if (!confirm("End this session? Every file in it will be deleted for everyone.")) return;
+  await fetch(api(""), {method:"DELETE"});
+  leave("Session ended. All files were deleted.");
+};
+$("copy").onclick = async () => {
+  try { await navigator.clipboard.writeText($("link").textContent); say("msg", "Link copied."); }
+  catch { say("msg", "Copying is blocked on plain HTTP. Select the link and copy it by hand."); }
+};
+
+const drop = $("drop");
+$("picker").onchange = e => { upload(e.target.files); e.target.value = ""; };
+["dragenter","dragover"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave","drop"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => upload(e.dataTransfer.files));
+drop.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("picker").click(); } });
+
+// Opening a link like http://192.168.1.5:8000/#ABC234 joins that session directly.
+const h = location.hash.slice(1).toUpperCase();
+if (CODE_RE.test(h)) join(h);
+</script>
+</body>
+</html>
