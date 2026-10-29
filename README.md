@@ -4,13 +4,16 @@ A small web app for sending files between devices (phone, laptop, another comput
 
 Built with Python (Flask) and plain HTML/CSS/JavaScript. Started as a Computer Networks lab experiment on file sharing over a local network, then grew into a web app.
 
-<!-- Add a screenshot of the app here:  ![LAN Share screenshot](screenshot.png) -->
+<img width="1046" height="565" alt="lanshare1" src="https://github.com/user-attachments/assets/07cd194b-569a-478d-a2ef-9dd484e62a6e" />
+<img width="1207" height="881" alt="lanshare2" src="https://github.com/user-attachments/assets/45a4999a-d657-4cb1-996f-99c7c3a508a4" />
+
+
 
 ## Live demo
 
-**https://YOUR-APP-NAME.onrender.com**
+**https://lan-share-arcg.onrender.com/**
 
-<!-- Replace the address above with the link shown on your Render dashboard after deploying. -->
+
 
 The app runs on a free server that sleeps when idle, so the first visit can take up to a minute to load. Please do not upload private or sensitive files.
 
