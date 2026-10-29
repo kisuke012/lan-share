@@ -80,6 +80,14 @@ The terminal prints an address such as `http://192.168.1.5:8000`.
 
 If the phone cannot connect, check that both devices are on the same network, that your firewall allows Python on private networks, and that your college Wi-Fi does not block device-to-device traffic (a phone hotspot usually works).
 
+### Running locally? You can raise the upload limit to 2 GB
+
+The default limit is **100 MB per session**, chosen to keep the free hosted version safe. On your own computer you can raise it up to **2 GB** by editing one line in `app.py`:
+
+MAX_ROOM_BYTES = 2 * 1024**3       # 2 GB per session
+
+Then update the two messages in `index.html` so users see the right number: the note under the drop zone ("Up to 100 MB per session") and the "not enough space" message.
+
 ## Deploy it (Render, free tier)
 
 1. Push the project files to a GitHub repository (files at the top level).
